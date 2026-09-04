@@ -70,6 +70,9 @@ ESCALATED   → CRM Ticket
 REJECTED    → Action Halted
 ```
 
+### RecoverAI Complete System Architecture
+<img width="1536" height="1024" alt="Complete System Architecture" src="https://github.com/user-attachments/assets/fab5f9e4-b47b-4f20-ab14-38c6d5907246" />
+
 ### Flow Diagram
 
 ```
