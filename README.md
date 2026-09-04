@@ -450,105 +450,40 @@ The UI displays the chain as verified when integrity validation succeeds.
 
 This is tamper-evident, not an externally immutable ledger. The audit records are stored in the application's local data store.
 
-👥 Role-Based Access Control
+👥 👥 Role-Based Access Control
 
-The UI exposes:
+The UI exposes four roles:
 
-Super Admin
+- **Super Admin**
+- **Merchant Operator**
+- **Risk Officer**
+- **Support Agent**
 
-Merchant Operator
+### Permission Matrix
 
-Risk Officer
+| Permission | Super Admin | Risk Officer | Merchant Operator | Support Agent |
+|---|:---:|:---:|:---:|:---:|
+| View metrics | ✓ | ✓ | ✓ | ✓ |
+| View cases | ✓ | ✓ | ✓ | ✓ |
+| Trigger manual action | ✓ | ✓ | ✓ | — |
+| Update policy rules | ✓ | ✓ | — | — |
+| Manage models | ✓ | ✓ | — | — |
+| View audit logs | ✓ | ✓ | — | — |
+| Manage secrets | ✓ | — | — | — |
 
-Support Agent
+### Access Levels
 
-Backend permission categories include:
+- **Super Admin** — Full system access, including policies, models, audit logs, secrets, and manual recovery actions.
+- **Risk Officer** — Can review cases, manage policies/models, audit recovery decisions, and trigger manual actions.
+- **Merchant Operator** — Can monitor metrics/cases, view guardrails, and trigger permitted manual recovery actions.
+- **Support Agent** — Can view metrics and recovery cases but cannot execute recovery actions or access administrative controls.
 
-Permission
+### Demo Authentication Note
 
-Super Admin
+For frictionless hackathon use, requests without a JWT receive a demo user, and the frontend supplies the selected role through `x-demo-role`.
 
-Risk Officer
+Therefore, the current RBAC is suitable for demonstrating permission behavior, but this authentication approach should **not** be considered production-grade authentication.
 
-Merchant Operator
-
-Support Agent
-
-View metrics
-
-✓
-
-✓
-
-✓
-
-✓
-
-View cases
-
-✓
-
-✓
-
-✓
-
-✓
-
-Trigger manual action
-
-✓
-
-✓
-
-✓
-
-—
-
-Update policy rules
-
-✓
-
-✓
-
-—
-
-—
-
-Manage models
-
-✓
-
-✓
-
-—
-
-—
-
-View audit logs
-
-✓
-
-✓
-
-—
-
-—
-
-Manage secrets
-
-✓
-
-—
-
-—
-
-—
-
-Demo authentication note
-
-For frictionless hackathon use, requests without a JWT receive a demo user, and the frontend supplies the selected role through x-demo-role.
-
-Therefore the current RBAC is suitable for demonstrating permission behavior, but this authentication approach should not be considered production-grade authentication.
 
 🗃️ Data Store
 
