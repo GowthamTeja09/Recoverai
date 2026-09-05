@@ -14,11 +14,11 @@ export class RecoveryOrchestrator {
     let actionType = diagnosis.recommended_action;
     let externalRefId = null;
     let responseData = null;
-    let channel = diagnosis.suggested_channel || 'RAZORPAY_API';
+    let channel = diagnosis.suggested_channel || 'NONE';
 
-    // If safety policy decided ESCALATED, override action to ESCALATE
-    if (policyDecision.decision === 'ESCALATED' || actionType === 'ESCALATE') {
-      actionType = 'ESCALATE';
+    // 1. If policy decided ESCALATED or AI recommended ESCALATE / ESCALATE_TO_HUMAN
+    if (policyDecision.decision === 'ESCALATED' || actionType === 'ESCALATE' || actionType === 'ESCALATE_TO_HUMAN') {
+      actionType = 'ESCALATE_TO_HUMAN';
       channel = 'CRM_TICKET';
 
       auditLogStore.logEvent({
@@ -27,8 +27,8 @@ export class RecoveryOrchestrator {
         actor: 'RecoveryOrchestrator',
         action: 'INITIATE_ESCALATION',
         details: {
-          tool: 'CRM Ticket Integration (Zendesk/Freshdesk)',
-          actionType: 'ESCALATE',
+          tool: 'CRM White-Glove Escalation (Zendesk/Freshdesk)',
+          actionType: 'ESCALATE_TO_HUMAN',
           reason: policyDecision.escalationReason || 'Policy Guardrail Escalation'
         }
       });
@@ -41,17 +41,127 @@ export class RecoveryOrchestrator {
       });
       externalRefId = responseData.ticket_id;
 
-      // Update case
       db.prepare(`
         UPDATE recovery_cases
         SET status = 'ESCALATED', attempts_count = attempts_count + 1, last_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(recoveryCase.id);
 
+      console.log(`[RECOVERY] Case #${recoveryCase.id} escalated to CRM ticket (${externalRefId})`);
+
     } else if (policyDecision.decision === 'APPROVED') {
       // Execute approved recovery tool
       switch (actionType) {
+        case 'STOP_RECOVERY': {
+          auditLogStore.logEvent({
+            caseId: recoveryCase.id,
+            eventType: 'ACTION_INITIATED',
+            actor: 'RecoveryOrchestrator',
+            action: 'STOP_RECOVERY',
+            details: {
+              tool: 'Recovery Policy Governor',
+              actionType: 'STOP_RECOVERY',
+              reason: diagnosis.reasoning || 'Recovery attempts concluded per safety limits'
+            }
+          });
+
+          responseData = {
+            status: 'STOPPED',
+            message: 'Autonomous recovery stopped to prevent customer fatigue or excessive retries'
+          };
+          externalRefId = `stop_${recoveryCase.id}`;
+
+          db.prepare(`
+            UPDATE recovery_cases
+            SET status = 'STOPPED', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(recoveryCase.id);
+
+          console.log(`[RECOVERY] Case #${recoveryCase.id} recovery stopped per policy`);
+          break;
+        }
+
+        case 'RETRY_PAYMENT': {
+          auditLogStore.logEvent({
+            caseId: recoveryCase.id,
+            eventType: 'ACTION_INITIATED',
+            actor: 'RecoveryOrchestrator',
+            action: 'INITIATE_PAYMENT_RETRY',
+            details: {
+              tool: 'Razorpay Instant Payment Gateway Retry',
+              actionType: 'RETRY_PAYMENT',
+              amount: recoveryCase.amount
+            }
+          });
+
+          responseData = await razorpayClient.createRecoveryOrder({
+            amount: recoveryCase.amount,
+            currency: recoveryCase.currency,
+            customerId: customer?.id,
+            receipt: `rcv_ret_${recoveryCase.id}`
+          });
+          externalRefId = responseData.id;
+
+          if (channel && channel !== 'NONE') {
+            await notificationChannels.dispatch({
+              channel: channel === 'CRM_TICKET' ? 'WHATSAPP' : channel,
+              customer,
+              template: diagnosis.customer_messaging,
+              caseId: recoveryCase.id
+            });
+          }
+
+          console.log(`[RECOVERY] Automated payment retry initiated for #${recoveryCase.id} (Order: ${externalRefId})`);
+          break;
+        }
+
+        case 'DELAY_AND_RETRY': {
+          const delayHours = diagnosis.optimal_delay_hours || 24;
+          auditLogStore.logEvent({
+            caseId: recoveryCase.id,
+            eventType: 'ACTION_INITIATED',
+            actor: 'RecoveryOrchestrator',
+            action: 'INITIATE_DELAYED_RETRY',
+            details: {
+              tool: 'Razorpay Smart Delay & Retry Scheduler',
+              actionType: 'DELAY_AND_RETRY',
+              delayHours
+            }
+          });
+
+          if (recoveryCase.payment_id?.startsWith('sub_') || recoveryCase.subscription_id) {
+            responseData = await razorpayClient.scheduleSubscriptionRetry({
+              subscriptionId: recoveryCase.payment_id,
+              delayHours
+            });
+            externalRefId = responseData.retry_id;
+          } else {
+            responseData = await razorpayClient.createPaymentLink({
+              amount: recoveryCase.amount,
+              currency: recoveryCase.currency,
+              description: `Recovery Payment for #${recoveryCase.id}`,
+              customer,
+              referenceId: recoveryCase.id
+            });
+            externalRefId = responseData.id;
+          }
+
+          if (channel && channel !== 'NONE') {
+            await notificationChannels.dispatch({
+              channel: channel === 'CRM_TICKET' ? 'WHATSAPP' : channel,
+              customer,
+              template: diagnosis.customer_messaging,
+              linkUrl: responseData.short_url,
+              caseId: recoveryCase.id
+            });
+          }
+
+          console.log(`[RECOVERY] Delayed retry scheduled (${delayHours}h) for #${recoveryCase.id}`);
+          break;
+        }
+
         case 'SUBSCRIPTION_RETRY': {
+          const delayHours = diagnosis.optimal_delay_hours || 4;
           auditLogStore.logEvent({
             caseId: recoveryCase.id,
             eventType: 'ACTION_INITIATED',
@@ -60,23 +170,26 @@ export class RecoveryOrchestrator {
             details: {
               tool: 'Razorpay Subscription Auto-Charge Retry API',
               actionType: 'SUBSCRIPTION_RETRY',
-              delayHours: diagnosis.optimal_delay_hours || 4
+              delayHours
             }
           });
 
           responseData = await razorpayClient.scheduleSubscriptionRetry({
             subscriptionId: recoveryCase.payment_id,
-            delayHours: diagnosis.optimal_delay_hours || 4
+            delayHours
           });
           externalRefId = responseData.retry_id;
 
-          // Also trigger friendly customer notification
-          await notificationChannels.dispatch({
-            channel: 'WHATSAPP',
-            customer,
-            template: diagnosis.customer_messaging,
-            caseId: recoveryCase.id
-          });
+          if (channel && channel !== 'NONE') {
+            await notificationChannels.dispatch({
+              channel: channel === 'CRM_TICKET' ? 'WHATSAPP' : channel,
+              customer,
+              template: diagnosis.customer_messaging,
+              caseId: recoveryCase.id
+            });
+          }
+
+          console.log(`[RECOVERY] Subscription retry scheduled (${delayHours}h) for #${recoveryCase.id}`);
           break;
         }
 
@@ -101,14 +214,15 @@ export class RecoveryOrchestrator {
           });
           externalRefId = responseData.id;
 
-          // Send checkout reminder with link
           await notificationChannels.dispatch({
-            channel: 'WHATSAPP',
+            channel: channel === 'NONE' || channel === 'CRM_TICKET' ? 'WHATSAPP' : channel,
             customer,
             template: diagnosis.customer_messaging,
             linkUrl: `https://rzp.io/l/order-checkout-${responseData.id}`,
             caseId: recoveryCase.id
           });
+
+          console.log(`[RECOVERY] Recovery order created: ${externalRefId} for #${recoveryCase.id}`);
           break;
         }
 
@@ -134,17 +248,19 @@ export class RecoveryOrchestrator {
           });
           externalRefId = responseData.id;
 
-          // Dispatch multi-channel notification
           await notificationChannels.dispatch({
-            channel: channel === 'CRM_TICKET' ? 'WHATSAPP' : channel,
+            channel: channel === 'NONE' || channel === 'CRM_TICKET' ? 'WHATSAPP' : channel,
             customer,
             template: diagnosis.customer_messaging,
             linkUrl: responseData.short_url,
             caseId: recoveryCase.id
           });
+
+          console.log(`[RECOVERY] Payment link generated: ${responseData.short_url} for #${recoveryCase.id}`);
           break;
         }
 
+        case 'SEND_REMINDER':
         case 'REMINDER': {
           auditLogStore.logEvent({
             caseId: recoveryCase.id,
@@ -153,17 +269,19 @@ export class RecoveryOrchestrator {
             action: 'INITIATE_REMINDER',
             details: {
               tool: `Multi-Channel Reminder (${channel})`,
-              actionType: 'REMINDER'
+              actionType: 'SEND_REMINDER'
             }
           });
 
           responseData = await notificationChannels.dispatch({
-            channel,
+            channel: channel === 'NONE' || channel === 'CRM_TICKET' ? 'WHATSAPP' : channel,
             customer,
             template: diagnosis.customer_messaging,
             caseId: recoveryCase.id
           });
           externalRefId = responseData.dispatchId;
+
+          console.log(`[RECOVERY] Reminder sent to customer for #${recoveryCase.id}`);
           break;
         }
 
@@ -171,12 +289,14 @@ export class RecoveryOrchestrator {
           throw new Error(`Unsupported recovery action: ${actionType}`);
       }
 
-      // Update case to IN_PROGRESS
-      db.prepare(`
-        UPDATE recovery_cases
-        SET status = 'IN_PROGRESS', attempts_count = attempts_count + 1, last_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(recoveryCase.id);
+      // If not stopped, update case to IN_PROGRESS
+      if (actionType !== 'STOP_RECOVERY') {
+        db.prepare(`
+          UPDATE recovery_cases
+          SET status = 'IN_PROGRESS', attempts_count = attempts_count + 1, last_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(recoveryCase.id);
+      }
 
     } else {
       // REJECTED by policy
@@ -189,6 +309,7 @@ export class RecoveryOrchestrator {
           reason: policyDecision.escalationReason || 'Policy Guardrail Violation'
         }
       });
+      console.log(`[RECOVERY] Execution rejected by policy for #${recoveryCase.id}: ${policyDecision.escalationReason}`);
       return { status: 'REJECTED', reason: policyDecision.escalationReason };
     }
 
@@ -202,7 +323,7 @@ export class RecoveryOrchestrator {
       recoveryCase.id,
       actionType,
       channel,
-      'DISPATCHED',
+      actionType === 'STOP_RECOVERY' ? 'STOPPED' : 'DISPATCHED',
       externalRefId,
       JSON.stringify(diagnosis),
       JSON.stringify(responseData)
@@ -212,7 +333,7 @@ export class RecoveryOrchestrator {
       actionId,
       actionType,
       channel,
-      status: 'DISPATCHED',
+      status: actionType === 'STOP_RECOVERY' ? 'STOPPED' : 'DISPATCHED',
       externalRefId,
       responseData
     };

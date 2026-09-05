@@ -12,7 +12,18 @@ export class PolicySafetyEngine {
       MAX_CUSTOMER_CONTACTS_24H: 2,
       QUIET_HOURS_START: 22, // 10 PM
       QUIET_HOURS_END: 8,    // 8 AM
-      ALLOWED_ACTIONS: ['SUBSCRIPTION_RETRY', 'RECOVERY_ORDER', 'PAYMENT_LINK', 'REMINDER', 'ESCALATE']
+      ALLOWED_ACTIONS: [
+        'RETRY_PAYMENT',
+        'PAYMENT_LINK',
+        'SEND_REMINDER',
+        'DELAY_AND_RETRY',
+        'SUBSCRIPTION_RETRY',
+        'ESCALATE_TO_HUMAN',
+        'STOP_RECOVERY',
+        'RECOVERY_ORDER',
+        'REMINDER',
+        'ESCALATE'
+      ]
     };
   }
 
@@ -58,8 +69,9 @@ export class PolicySafetyEngine {
       escalationReason = `Action ${recommendedAction} is not permitted by policy whitelist`;
     }
 
-    // Check 2: Amount Limit Check
-    const amountPassed = amount <= rules.MAX_AUTO_RECOVERY_AMOUNT;
+    // Check 2: Amount Limit Check (Autonomous ceiling applies to automated recovery actions)
+    const isHumanEscalation = recommendedAction === 'ESCALATE' || recommendedAction === 'ESCALATE_TO_HUMAN' || recommendedAction === 'STOP_RECOVERY';
+    const amountPassed = isHumanEscalation || amount <= rules.MAX_AUTO_RECOVERY_AMOUNT;
     checks.push({
       rule: 'MAX_AMOUNT_LIMIT',
       passed: amountPassed,
@@ -71,7 +83,7 @@ export class PolicySafetyEngine {
     }
 
     // Check 3: Retry Limits Check
-    const retryPassed = attempts < rules.MAX_RETRY_ATTEMPTS;
+    const retryPassed = recommendedAction === 'STOP_RECOVERY' || attempts < rules.MAX_RETRY_ATTEMPTS;
     checks.push({
       rule: 'RETRY_LIMITS',
       passed: retryPassed,
@@ -119,12 +131,12 @@ export class PolicySafetyEngine {
     // Check 6: Customer Contact Limits & Quiet Hours
     const currentHour = new Date().getHours();
     const isQuietHours = currentHour >= rules.QUIET_HOURS_START || currentHour < rules.QUIET_HOURS_END;
-    const isCustomerFacing = ['PAYMENT_LINK', 'REMINDER'].includes(recommendedAction);
+    const isCustomerFacing = ['PAYMENT_LINK', 'SEND_REMINDER', 'REMINDER'].includes(recommendedAction);
 
     // Count messages sent to customer in last 24h
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
     const recentContacts = previousActions.filter(a =>
-      ['PAYMENT_LINK', 'REMINDER'].includes(a.action_type) &&
+      ['PAYMENT_LINK', 'SEND_REMINDER', 'REMINDER'].includes(a.action_type) &&
       new Date(a.created_at).getTime() > oneDayAgo
     ).length;
 
@@ -160,11 +172,13 @@ export class PolicySafetyEngine {
       escalationReason = 'Concurrent action already executing for this payment';
     }
 
-    // If explicit action is ESCALATE from AI diagnostic, decision is ESCALATED
-    if (recommendedAction === 'ESCALATE') {
+    // If explicit action is ESCALATE or ESCALATE_TO_HUMAN from AI diagnostic, decision is ESCALATED
+    if (recommendedAction === 'ESCALATE' || recommendedAction === 'ESCALATE_TO_HUMAN') {
       decision = 'ESCALATED';
       escalationReason = escalationReason || 'AI diagnostic recommended human escalation';
     }
+
+    console.log(`[POLICY] Recommendation ${decision} for action ${recommendedAction} (checks passed: ${checks.filter(c => c.passed).length}/${checks.length}${escalationReason ? `, reason: ${escalationReason}` : ''})`);
 
     const result = {
       engine: this.name,

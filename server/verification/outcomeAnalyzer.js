@@ -77,6 +77,8 @@ export class OutcomeAnalyzer {
       }
     });
 
+    console.log(`[VERIFY] Payment recovered: ₹${paidAmount.toLocaleString('en-IN')} for #${targetCase.id} (${outcomeStatus})`);
+
     // Update Recovery Case in DB
     db.prepare(`
       UPDATE recovery_cases

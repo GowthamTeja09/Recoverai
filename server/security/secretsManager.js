@@ -1,15 +1,17 @@
-import crypto from 'crypto';
-
 class SecretsManager {
   constructor() {
     this.secrets = {
-      RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || 'rzp_live_recovAI981245',
-      RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || 'sec_rzp_99xAbCdEfGhIjKlMnOpQrStUvWxYz',
-      RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || 'whsec_recoverai_live_89123',
-      GEMINI_API_KEY: process.env.GEMINI_API_KEY || 'AIzaSyDemoRecoverAIEnterpriseSecretKey',
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'sk-proj-recoverai-enterprise-mock-key',
-      ZENDESK_WEBHOOK_URL: process.env.ZENDESK_WEBHOOK_URL || 'https://recoverai.zendesk.com/api/v2/tickets',
-      WHATSAPP_API_TOKEN: process.env.WHATSAPP_API_TOKEN || 'EAAXDemoTokenForEnterpriseWhatsAppCloudAPI'
+      RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || '',
+      RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || '',
+      RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+      GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+      GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      GEMINI_TIMEOUT_MS: process.env.GEMINI_TIMEOUT_MS || '8000',
+      AI_DIAGNOSTIC_ENABLED: process.env.AI_DIAGNOSTIC_ENABLED || 'true',
+      JWT_SECRET: process.env.JWT_SECRET || '',
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+      ZENDESK_WEBHOOK_URL: process.env.ZENDESK_WEBHOOK_URL || '',
+      WHATSAPP_API_TOKEN: process.env.WHATSAPP_API_TOKEN || ''
     };
   }
 
@@ -29,7 +31,7 @@ class SecretsManager {
   getAllMasked() {
     const masked = {};
     for (const [k, v] of Object.entries(this.secrets)) {
-      masked[k] = this.maskSecret(v);
+      masked[k] = v ? this.maskSecret(v) : '(not configured)';
     }
     return masked;
   }

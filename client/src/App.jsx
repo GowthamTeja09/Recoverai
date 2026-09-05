@@ -925,6 +925,16 @@ function App() {
     return data;
   };
 
+  const handleRunDemoBatch = async () => {
+    const data = await apiRequest('/api/webhooks/demo-batch', {
+      method: 'POST',
+      headers: apiHeaders,
+      body: JSON.stringify({})
+    });
+    await refreshRef.current();
+    return data;
+  };
+
   const handleBatchIngest = async (transactions) => {
     const data = await apiRequest('/api/ingestion/batch', {
       method: 'POST',
@@ -1107,6 +1117,7 @@ function App() {
         <WebhookSimulatorModal
           onClose={() => setIsSimulatorOpen(false)}
           onSimulateWebhook={handleSimulateWebhook}
+          onRunDemoBatch={handleRunDemoBatch}
         />
       )}
 

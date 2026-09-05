@@ -34,15 +34,15 @@ export default function IntegrationsView({ secrets = {} }) {
           <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-2 text-xs font-mono">
             <div className="flex justify-between">
               <span className="text-slate-500">Key ID:</span>
-              <span className="text-slate-200">{secrets.RAZORPAY_KEY_ID || 'rzp_live_••••••45'}</span>
+              <span className="text-slate-200">{secrets.RAZORPAY_KEY_ID || '(not configured)'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Key Secret:</span>
-              <span className="text-slate-200">{secrets.RAZORPAY_KEY_SECRET || 'sec_••••••••••••Yz'}</span>
+              <span className="text-slate-200">{secrets.RAZORPAY_KEY_SECRET || '(not configured)'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Webhook Secret:</span>
-              <span className="text-slate-200">{secrets.RAZORPAY_WEBHOOK_SECRET || 'whsec_••••••••23'}</span>
+              <span className="text-slate-200">{secrets.RAZORPAY_WEBHOOK_SECRET || '(not configured)'}</span>
             </div>
           </div>
         </div>

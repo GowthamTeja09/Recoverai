@@ -83,9 +83,9 @@ class EnterpriseRelationalDB {
   _executeRun(sql, args) {
     const upper = sql.toUpperCase();
 
-    // 1. INSERT INTO table
-    if (upper.startsWith('INSERT INTO')) {
-      const match = sql.match(/INSERT\s+INTO\s+(\w+)\s*\(([\s\S]+?)\)\s*VALUES\s*\(([\s\S]+?)\)/i);
+    // 1. INSERT INTO table (supports standard and INSERT OR IGNORE / REPLACE)
+    if (upper.includes('INSERT')) {
+      const match = sql.match(/INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(\w+)\s*\(([\s\S]+?)\)\s*VALUES\s*\(([\s\S]+?)\)/i);
       if (match) {
         const table = match[1].toLowerCase();
         const cols = match[2].split(',').map(c => c.trim());

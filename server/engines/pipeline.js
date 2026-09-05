@@ -172,6 +172,29 @@ export async function processPipelineEvent(queueItem) {
       customer
     });
 
+    const finalCaseState = db.prepare('SELECT * FROM recovery_cases WHERE id = ?').get(caseId);
+
+    // Section 12 Audit Trail: Record comprehensive 11-field AI decision audit
+    auditLogStore.logEvent({
+      caseId,
+      eventType: 'AI_RECOVERY_DECISION_AUDIT',
+      actor: 'AIDiagnosticAgent',
+      action: 'RECORD_RECOVERY_DECISION',
+      details: {
+        transactionId: paymentId,
+        timestamp: new Date().toISOString(),
+        riskScore: riskAnalysis.riskScore,
+        aiRootCause: diagnosis.root_cause,
+        aiRecommendedAction: diagnosis.recommended_action,
+        aiConfidence: diagnosis.confidence,
+        policyDecision: policyDecision.decision,
+        finalAction: orchestrationResult?.actionType || diagnosis.recommended_action,
+        recoveryResult: finalCaseState?.status || 'IN_PROGRESS',
+        recoveredAmount: finalCaseState?.recovered_amount || 0,
+        fallbackUsed: diagnosis.fallback_used ?? false
+      }
+    });
+
     eventQueue.acknowledge(queueItem.streamId);
 
     return {

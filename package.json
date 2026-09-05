@@ -4,11 +4,13 @@
   "type": "module",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js",
-    "server": "node server/index.js",
-    "test": "node server/test/engines.test.js"
+    "start": "node server/start.js",
+    "server": "node server/start.js",
+    "test": "node server/test/engines.test.js",
+    "test:security": "node server/test/security.test.js"
   },
   "dependencies": {
+    "@google/genai": "^2.21.0",
     "better-sqlite3": "^11.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

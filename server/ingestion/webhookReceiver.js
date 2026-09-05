@@ -5,35 +5,59 @@ import { deduplicator } from './deduplicator.js';
 import { eventQueue } from './eventQueue.js';
 
 export function verifyWebhookSignature(rawBody, signature, secret) {
-  if (!signature || !secret) return false;
-  // If in demo mode and signature matches bypass key or valid hash
-  if (signature === 'demo_verified_signature_recoverai') return true;
+  if (!signature || !secret || !rawBody) return false;
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isDemoMode = (process.env.DEMO_MODE === 'true' || process.env.DEMO_MODE === true) && !isProduction;
+
+  // Unconditional demo bypass is strictly forbidden in production
+  if (signature === 'demo_verified_signature_recoverai') {
+    return isDemoMode;
+  }
 
   try {
+    const rawBuffer = Buffer.isBuffer(rawBody)
+      ? rawBody
+      : Buffer.from(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody), 'utf8');
+
     const expectedSignature = crypto
       .createHmac('sha256', secret)
-      .update(typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody))
+      .update(rawBuffer)
       .digest('hex');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(signature, 'utf8'),
-      Buffer.from(expectedSignature, 'utf8')
-    );
+    const sigBuf = Buffer.from(String(signature).trim(), 'utf8');
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+
+    // Length check prevents timingSafeEqual range exception
+    if (sigBuf.length !== expectedBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(sigBuf, expectedBuf);
   } catch (err) {
     return false;
   }
 }
 
-export async function processIncomingWebhook({ rawBody, headers, payload }) {
+export async function processIncomingWebhook({ rawBody, headers = {}, payload, isSimulated = false }) {
   const signature = headers['x-razorpay-signature'] || headers['x-signature'];
   const secret = secretsManager.get('RAZORPAY_WEBHOOK_SECRET');
+  const isProduction = process.env.NODE_ENV === 'production';
 
-  const isValid = verifyWebhookSignature(rawBody, signature, secret);
-  if (!isValid && process.env.NODE_ENV === 'production') {
-    throw new Error('Invalid Razorpay webhook signature');
+  // In production or for real webhook requests, signature must be verified
+  if (!isSimulated || isProduction) {
+    if (!secret || secret.trim().length === 0) {
+      throw new Error('Razorpay webhook secret is not configured on server');
+    }
+
+    const isValid = verifyWebhookSignature(rawBody, signature, secret);
+    if (!isValid) {
+      throw new Error('Invalid Razorpay webhook HMAC signature');
+    }
   }
 
-  const eventId = payload.event_id || payload.id || `wh_${Date.now()}`;
+  // Idempotency: prioritize Razorpay's official event ID header if provided
+  const eventId = headers['x-razorpay-event-id'] || payload.event_id || payload.id || `wh_${Date.now()}`;
   const eventType = payload.event;
   const entity = payload.payload?.payment?.entity || payload.payload?.subscription?.entity || payload.payload?.order?.entity || payload;
   const entityId = entity.id || `ent_${Date.now()}`;

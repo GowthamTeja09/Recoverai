@@ -144,13 +144,29 @@ export default function CaseDetailModal({ caseData, onClose, onSimulatePayment, 
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Bot className="w-5 h-5 text-purple-400" />
-                <h4 className="text-sm font-heading font-bold text-white">
-                  AI Diagnostic Agent (Case Understander & Recommender)
-                </h4>
+                <div>
+                  <h4 className="text-sm font-heading font-bold text-white">
+                    AI Diagnostic Agent (Gemini Flash Recommender)
+                  </h4>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    Model: {diagnosis.model_used || 'gemini-2.5-flash'} {diagnosis.fallback_used ? '(Fallback Active)' : '(Active)'}
+                  </span>
+                </div>
               </div>
-              <span className="text-xs font-mono text-purple-300 bg-purple-500/10 px-2.5 py-0.5 rounded border border-purple-500/20 font-semibold">
-                Confidence: {diagnosis.confidence ? `${(diagnosis.confidence * 100).toFixed(0)}%` : '92%'}
-              </span>
+              <div className="flex items-center gap-2">
+                {diagnosis.recovery_priority && (
+                  <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+                    diagnosis.recovery_priority === 'CRITICAL' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' :
+                    diagnosis.recovery_priority === 'HIGH' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
+                    'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                  }`}>
+                    {diagnosis.recovery_priority} PRIORITY
+                  </span>
+                )}
+                <span className="text-xs font-mono text-purple-300 bg-purple-500/10 px-2.5 py-0.5 rounded border border-purple-500/20 font-semibold">
+                  Confidence: {diagnosis.confidence ? `${(diagnosis.confidence * 100).toFixed(0)}%` : '92%'}
+                </span>
+              </div>
             </div>
 
             <div className="space-y-3 text-xs">
@@ -165,14 +181,18 @@ export default function CaseDetailModal({ caseData, onClose, onSimulatePayment, 
                 {diagnosis.reasoning || 'Automated AI root cause analysis indicated a transient failure during authentication.'}
               </p>
 
-              <div className="flex flex-wrap items-center gap-3 pt-2">
+              <div className="flex flex-wrap items-center gap-4 pt-2">
                 <div>
-                  <span className="text-slate-400">Recommended Tool: </span>
+                  <span className="text-slate-400">Recommended Action: </span>
                   <strong className="text-emerald-400 font-mono ml-1">{c.recommended_action || diagnosis.recommended_action}</strong>
                 </div>
                 <div>
                   <span className="text-slate-400">Channel: </span>
                   <strong className="text-slate-200 font-mono ml-1">{diagnosis.suggested_channel || 'WHATSAPP'}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400">Delay: </span>
+                  <strong className="text-indigo-300 font-mono ml-1">{diagnosis.optimal_delay_hours ? `${diagnosis.optimal_delay_hours} Hours` : 'Immediate'}</strong>
                 </div>
               </div>
 

@@ -5,7 +5,7 @@ import { eventQueue } from '../ingestion/eventQueue.js';
 import { auditLogStore } from '../security/auditLogStore.js';
 import { modelRegistry } from '../ml/modelRegistry.js';
 import { secretsManager } from '../security/secretsManager.js';
-import { JWT_SECRET } from '../security/auth.js';
+import { getJwtSecret } from '../security/auth.js';
 import { ROLES } from '../security/rbac.js';
 
 const router = express.Router();
@@ -39,21 +39,25 @@ const STREAM_ACCESS = {
 function resolveRequestRole(req) {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isDemoMode = (process.env.DEMO_MODE === 'true' || process.env.DEMO_MODE === true) && !isProduction;
 
   if (token) {
     try {
-      const user = jwt.verify(token, JWT_SECRET);
+      const user = jwt.verify(token, getJwtSecret());
       if (user?.role && Object.values(ROLES).includes(String(user.role).toUpperCase())) {
         return String(user.role).toUpperCase();
       }
     } catch {
-      // Fall back to demo role below.
+      // Fall back to demo role only if demo mode is active
     }
   }
 
-  const demoRole = String(req.headers['x-demo-role'] || '').toUpperCase();
-  if (Object.values(ROLES).includes(demoRole)) {
-    return demoRole;
+  if (isDemoMode) {
+    const demoRole = String(req.headers['x-demo-role'] || '').toUpperCase();
+    if (Object.values(ROLES).includes(demoRole)) {
+      return demoRole;
+    }
   }
 
   return ROLES.SUPPORT_AGENT;
@@ -70,15 +74,25 @@ function parseJsonField(value, fallback) {
 }
 
 function loadMetrics() {
-  const totalCases = db.prepare('SELECT count(*) as count FROM recovery_cases').get().count;
-  const recoveredCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'RECOVERED'").get().count;
-  const partialCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'PARTIAL'").get().count;
-  const inProgressCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'IN_PROGRESS'").get().count;
-  const escalatedCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'ESCALATED'").get().count;
-  const openCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'OPEN'").get().count;
+  const totalCases = db.prepare('SELECT count(*) as count FROM recovery_cases').get()?.count || 0;
+  const recoveredCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'RECOVERED'").get()?.count || 0;
+  const partialCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'PARTIAL'").get()?.count || 0;
+  const inProgressCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'IN_PROGRESS'").get()?.count || 0;
+  const escalatedCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'ESCALATED'").get()?.count || 0;
+  const stoppedCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'STOPPED'").get()?.count || 0;
+  const openCases = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE status = 'OPEN'").get()?.count || 0;
 
-  const totalRecoveredAmount = db.prepare("SELECT COALESCE(SUM(recovered_amount), 0) as total FROM recovery_cases").get().total;
-  const totalAtRiskAmount = db.prepare("SELECT COALESCE(SUM(amount - recovered_amount), 0) as total FROM recovery_cases WHERE status IN ('OPEN', 'IN_PROGRESS', 'ESCALATED')").get().total;
+  const totalRecoveredAmount = db.prepare("SELECT COALESCE(SUM(recovered_amount), 0) as total FROM recovery_cases").get()?.total || 0;
+  const totalAtRiskAmount = db.prepare("SELECT COALESCE(SUM(amount - recovered_amount), 0) as total FROM recovery_cases WHERE status IN ('OPEN', 'IN_PROGRESS', 'ESCALATED')").get()?.total || 0;
+  const recoveryOpportunities = db.prepare("SELECT COALESCE(SUM(amount), 0) as total FROM recovery_cases WHERE status IN ('OPEN', 'IN_PROGRESS')").get()?.total || 0;
+
+  const aiDecisions = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE recommended_action IS NOT NULL").get()?.count || 0;
+  const aiRecommendedRecoveries = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE recommended_action NOT IN ('STOP_RECOVERY', 'ESCALATE', 'ESCALATE_TO_HUMAN')").get()?.count || 0;
+  const approvedRecoveries = db.prepare("SELECT count(*) as count FROM recovery_cases WHERE policy_decision = 'APPROVED'").get()?.count || 0;
+
+  const avgConfRow = db.prepare("SELECT AVG(confidence_score) as avgConf FROM recovery_cases WHERE confidence_score IS NOT NULL").get();
+  const avgRecoveryConfidence = avgConfRow?.avgConf ? Math.round(avgConfRow.avgConf * 100) / 100 : 0.91;
+
   const recoveryRate = totalCases > 0 ? ((recoveredCases + partialCases * 0.5) / totalCases) * 100 : 0;
 
   const actionCounts = db.prepare(`
@@ -96,11 +110,17 @@ function loadMetrics() {
   return {
     revenueAtRisk: Math.round(totalAtRiskAmount),
     totalRevenueRecovered: Math.round(totalRecoveredAmount),
+    recoveryOpportunities: Math.round(recoveryOpportunities),
     recoverySuccessRate: Math.round(recoveryRate * 10) / 10,
     totalCases,
     activeCases: inProgressCases + openCases,
     recoveredCases,
     escalatedCases,
+    stoppedCases,
+    aiDecisions,
+    aiRecommendedRecoveries,
+    approvedRecoveries,
+    avgRecoveryConfidence,
     actionDistribution: actionCounts,
     riskDistribution: riskCounts,
     queue: eventQueue.getMetrics()
