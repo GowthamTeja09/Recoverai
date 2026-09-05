@@ -663,7 +663,7 @@ Potential production extensions include:
 
 ## 🎥 Demo Video
 
-▶️ **[Watch the RecoverAI Demo]([YOUR_VIDEO_LINK_HERE](https://drive.google.com/file/d/15h13bU_9vfMR8X-KpSxShjpwoXtVZjdK/view?usp=drive_link))**
+▶️ **[Watch the RecoverAI Demo]((https://drive.google.com/file/d/15h13bU_9vfMR8X-KpSxShjpwoXtVZjdK/view?usp=drive_link))**
 
 The demo showcases AI diagnosis, Safety Guardrails, Recovery Orchestration,
 Verification, Audit Trail, RBAC, and security controls.
