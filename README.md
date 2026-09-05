@@ -1,680 +1,677 @@
-# RecoverAI v2.1 Enterprise
+# RecoverAI — AI-Powered Revenue Recovery Agent
 
-Autonomous revenue-recovery orchestration for failed digital payments, with AI-style diagnosis, deterministic safety guardrails, recovery actions, payment verification, RBAC, and tamper-evident audit trails.
+> **Razorpay AI Buildathon 2026 — Track 03: AI Revenue Recovery**
 
-RecoverAI is a hackathon-focused full-stack prototype for AI Revenue Recovery. It demonstrates a closed-loop flow:
+RecoverAI is an AI-powered revenue recovery platform that detects payment failures, diagnoses their likely causes, recommends the best recovery strategy, and orchestrates safe recovery actions.
 
-**Payment Failure → Webhook Ingestion → Risk Scoring → Diagnostic / Recovery Recommendation → Safety & Policy Evaluation → Recovery Orchestration → Customer Payment / Recovery Event → Verification → Revenue Recovered → Audit Trail**
-
----
-
-## Important Implementation Note
-
-This repository is a **working demo/simulation, not a production Razorpay deployment**.
-
-- The project contains a Razorpay-compatible webhook ingestion path and a simulated Razorpay client for recovery actions. The current `razorpayClient.js` does **not** make live outbound Razorpay REST API calls; payment links, recovery orders, subscription retries, and customer payments are simulated in memory.
-- Likewise, the AI diagnostic agent currently uses **deterministic domain heuristics** rather than making a live Gemini/OpenAI/LLM API request. The model registry contains seeded model metadata/metrics for the dashboard; it is not training or serving those ML models.
-
-These distinctions are intentional for the hackathon demo and should be preserved when presenting the project.
+The system combines **AI reasoning, deterministic business policies, automated recovery orchestration, outcome verification, and analytics** to help merchants recover revenue that would otherwise be lost due to failed or at-risk payments.
 
 ---
 
-## 🎯 Problem
+## 🚀 Problem
 
-Failed payments create immediate revenue leakage. A merchant needs to determine:
+Payment failures are a major source of revenue leakage for digital businesses.
 
-1. Why did the payment fail?
-2. Is the failure worth attempting to recover automatically?
-3. Which recovery action is most appropriate?
-4. Is the action safe to execute?
-5. When should the customer be contacted?
-6. Did the recovery actually result in a successful payment?
-7. Can every decision be audited?
+A failed payment does not always mean a lost customer. The failure may be caused by:
 
-RecoverAI turns those questions into a closed-loop recovery pipeline instead of treating every failed payment with the same retry strategy.
+* Temporary bank/network issues
+* Insufficient balance
+* Expired cards
+* Authentication failures
+* Risk or fraud signals
+* Customer inactivity
+* Repeated payment failures
 
----
+Traditional systems often use fixed retry rules that treat every failure similarly.
 
-## 💡 Solution
+RecoverAI takes a different approach:
 
-RecoverAI evaluates each failed payment using transaction and customer context, recommends a recovery strategy, subjects that recommendation to deterministic policy checks, executes an appropriate recovery action, and verifies the eventual payment outcome.
-
-> **Key design principle:** AI recommends; deterministic policy decides; the recovery orchestrator executes; payment events verify the outcome.
+> **Understand the failure → determine the best recovery strategy → execute safely → verify the outcome → learn from the result.**
 
 ---
 
-## 🏗️ Architecture
+# 💡 Solution
 
-### Pipeline Overview
+RecoverAI continuously processes payment events and creates a recovery decision for each revenue-risk case.
 
-| Stage | Component | Responsibility |
-|---|---|---|
-| 1 | **Razorpay / Simulator** | Emits `payment.failed` events |
-| 2 | **Webhook Receiver** | HMAC verification, event validation, deduplication |
-| 3 | **Event Queue** | In-memory `EventEmitter`, async pipeline trigger |
-| 4 | **Revenue Risk Engine** | Feature extraction, risk score, recovery probabilities |
-| 5 | **AI Diagnostic Agent** | Domain heuristics, root-cause classification, action recommendation |
-| 6 | **Policy Safety Engine** | Amount limit, retry limit, cooldown, confidence, contact limits, quiet hours, action whitelist, in-flight/idempotency |
-| 7 | **Decision Routing** | Routes to `APPROVED`, `ESCALATED`, or `REJECTED` |
-| 8 | **Recovery Orchestrator** | Executes: Subscription Retry / Recovery Order / Payment Link / Reminder |
-| 9 | **Customer Payment Event** | Customer completes (or fails) the recovery action |
-| 10 | **Outcome Verification** | Classifies result as `RECOVERED` or `PARTIAL` |
-| 11 | **Revenue Metrics** | Updates dashboard metrics |
-| 12 | **Audit Hash Chain** | Tamper-evident logging of every step |
+### Core pipeline
 
-### Decision Routing
-
+```text
+Payment Event
+     │
+     ▼
+Webhook Receiver
+     │
+     ▼
+Revenue Risk Detection
+     │
+     ▼
+AI Diagnostic Agent
+     │
+     ▼
+Policy Safety Engine
+     │
+     ▼
+Recovery Orchestrator
+     │
+     ├── Retry Payment
+     ├── Send Notification
+     ├── Escalate to Support
+     └── Stop Recovery
+     │
+     ▼
+Outcome Verification
+     │
+     ▼
+Revenue & Recovery Analytics
 ```
-APPROVED    → Recovery Orchestrator → (Subscription Retry | Recovery Order | Payment Link | Reminder)
-ESCALATED   → CRM Ticket
-REJECTED    → Action Halted
-```
 
-### RecoverAI Complete System Architecture
-<img width="1536" height="1024" alt="Complete System Architecture" src="https://github.com/user-attachments/assets/fab5f9e4-b47b-4f20-ab14-38c6d5907246" />
+### Design principle
 
-### Flow Diagram
+> **AI recommends. Policy controls. Orchestrator executes. Verification measures.**
 
-```
-                     ┌─────────────────────────┐
-                     │   Razorpay / Simulator   │
-                     │   payment.failed events  │
-                     └────────────┬─────────────┘
-                                  │
-                                  ▼
-                     ┌─────────────────────────┐
-                     │     Webhook Receiver     │
-                     │  HMAC verification       │
-                     │  Event validation        │
-                     │  Deduplication            │
-                     └────────────┬─────────────┘
-                                  │
-                                  ▼
-                     ┌─────────────────────────┐
-                     │       Event Queue        │
-                     │  In-memory EventEmitter  │
-                     │  async pipeline trigger  │
-                     └────────────┬─────────────┘
-                                  │
-                                  ▼
-                     ┌─────────────────────────┐
-                     │   Revenue Risk Engine    │
-                     │  feature extraction      │
-                     │  risk score               │
-                     │  recovery probabilities  │
-                     └────────────┬─────────────┘
-                                  │
-                                  ▼
-                     ┌─────────────────────────┐
-                     │  AI Diagnostic Agent     │
-                     │  domain heuristics       │
-                     │  root-cause classification│
-                     │  action recommendation   │
-                     └────────────┬─────────────┘
-                                  │
-                                  ▼
-                     ┌─────────────────────────┐
-                     │  Policy Safety Engine    │
-                     │  amount limit             │
-                     │  retry limit              │
-                     │  cooldown                 │
-                     │  confidence                │
-                     │  contact limits            │
-                     │  quiet hours               │
-                     │  action whitelist          │
-                     │  in-flight/idempotency    │
-                     └────────────┬─────────────┘
-                                  │
-              ┌───────────────────┼───────────────────┐
-              ▼                   ▼                   ▼
-          APPROVED            ESCALATED            REJECTED
-              │                   │                   │
-              ▼                   ▼                   ▼
-   Recovery Orchestrator     CRM Ticket          Action Halted
-              │
-   ┌──────────┼───────────┬──────────────┐
-   ▼          ▼           ▼              ▼
-Subscription  Recovery   Payment       Reminder
-Retry         Order      Link
-   │          │           │              │
-   └──────────┴───────────┴──────────────┘
-                          │
-                          ▼
-              Customer Payment Event
-                          │
-                          ▼
-               Outcome Verification
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-          RECOVERED                PARTIAL
-              │
-              ▼
-        Revenue Metrics
-              │
-              ▼
-        Audit Hash Chain
-```
+The AI is intentionally not given unrestricted control over payment operations.
 
 ---
 
-## 🔄 Recovery Strategies
+# 🤖 AI Diagnostic Agent
 
-RecoverAI currently supports these action types:
+The AI Diagnostic Agent is the reasoning layer of RecoverAI.
 
-| Action | Intended Use |
-|---|---|
-| `SUBSCRIPTION_RETRY` | Recurring payment with a transient failure |
-| `RECOVERY_ORDER` | One-time payment where a fresh checkout/order is appropriate |
-| `PAYMENT_LINK` | Customer can complete payment through a recovery link |
-| `REMINDER` | Customer notification without creating a new payment action |
-| `ESCALATE` | Human/CRM escalation for risky or blocked cases |
+It analyzes transaction and customer context and determines:
 
-### Examples
+* Probable root cause
+* Recommended recovery action
+* Communication channel
+* Priority
+* Recommended delay
+* Confidence score
+* Reasoning
 
-**3DS / authentication failure**
-```
-payment.failed → AUTHENTICATION_FAILED → CUSTOMER_3DS_ABANDONMENT
-→ PAYMENT_LINK → Customer payment → Verification → RECOVERED
-```
+The current implementation integrates with **Google Gemini** through the Google GenAI SDK.
 
-**Subscription gateway failure**
-```
-subscription.charge.failed → GATEWAY_ERROR → TRANSIENT_ISSUER_OUTAGE
-→ SUBSCRIPTION_RETRY
+When `GEMINI_API_KEY` is configured, RecoverAI can send the diagnostic context to the configured Gemini model.
+
+The default model is:
+
+```text
+gemini-2.5-flash
 ```
 
-**High-value transaction**
-```
-₹1,45,000 → Amount > ₹50,000 autonomous limit → ESCALATED → CRM ticket
+If Gemini is unavailable, disabled, times out, or produces invalid output, RecoverAI uses a deterministic fallback strategy instead of allowing the recovery pipeline to fail.
+
+---
+
+# 🧠 AI + Safety Architecture
+
+RecoverAI follows a layered AI safety architecture.
+
+```text
+                    ┌─────────────────────┐
+                    │   Payment Event     │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  Revenue Risk       │
+                    │  Detection          │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+              ┌─────────────────────────────────┐
+              │      AI Diagnostic Agent        │
+              │                                 │
+              │  Gemini Reasoning               │
+              │  Root Cause Analysis            │
+              │  Recovery Recommendation        │
+              └───────────────┬─────────────────┘
+                              │
+                              ▼
+              ┌─────────────────────────────────┐
+              │      Policy Safety Engine       │
+              │                                 │
+              │  Action Validation              │
+              │  Risk Limits                    │
+              │  Business Rules                 │
+              │  AI Override / Guardrails       │
+              └───────────────┬─────────────────┘
+                              │
+                              ▼
+              ┌─────────────────────────────────┐
+              │      Recovery Orchestrator      │
+              │                                 │
+              │  Retry                          │
+              │  Notification                   │
+              │  Escalation                     │
+              │  Stop Recovery                  │
+              └───────────────┬─────────────────┘
+                              │
+                              ▼
+              ┌─────────────────────────────────┐
+              │       Verification Layer        │
+              │                                 │
+              │  Payment Outcome                │
+              │  Recovery Success               │
+              │  Revenue Recovered              │
+              └───────────────┬─────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │ Analytics & Audit   │
+                    └─────────────────────┘
 ```
 
 ---
 
-## 🛡️ Safety & Guardrails
+# 🛡️ Security Architecture
 
-The policy engine is deterministic and independent of the diagnostic recommendation.
+RecoverAI includes multiple security layers around the AI and payment workflow.
 
-| Guardrail | Default |
-|---|---|
-| Maximum autonomous recovery amount | ₹50,000 |
-| Maximum recovery attempts | 3 |
-| Minimum cooldown | 4 hours |
-| Minimum diagnostic confidence | 70% |
-| Maximum customer contacts / 24h | 2 |
-| Quiet hours | 22:00–08:00 |
-| Allowed actions | Subscription retry, recovery order, payment link, reminder, escalation |
+### Authentication
 
-The policy engine can return: `APPROVED`, `REJECTED`, or `ESCALATED`.
+Production APIs require JWT authentication.
 
-This prevents an AI recommendation from automatically becoming an unrestricted financial action.
+Demo authentication is restricted to:
+
+```text
+NODE_ENV != production
+AND
+DEMO_MODE = true
+```
+
+The demo token-generation endpoint is disabled in production.
+
+### Role-Based Access Control
+
+RecoverAI supports:
+
+| Role                | Purpose                      |
+| ------------------- | ---------------------------- |
+| `SUPER_ADMIN`       | Full platform administration |
+| `RISK_OFFICER`      | Risk and recovery oversight  |
+| `MERCHANT_OPERATOR` | Merchant operations          |
+| `SUPPORT_AGENT`     | Customer/recovery support    |
+
+Permissions are enforced through the RBAC layer before sensitive operations are executed.
+
+### Webhook Security
+
+Razorpay webhook requests are protected using:
+
+```text
+HMAC-SHA256
+```
+
+The system:
+
+1. Receives the raw webhook body.
+2. Computes the expected HMAC signature.
+3. Compares signatures using a timing-safe comparison.
+4. Rejects invalid or missing signatures.
+5. Uses event IDs for duplicate-event protection.
+
+Demo webhook signatures are only accepted outside production demo environments.
+
+### Rate Limiting
+
+Rate limiting is applied to:
+
+* General API traffic
+* Razorpay webhooks
+* Simulation endpoints
+
+This helps reduce abuse and accidental request floods.
+
+### AI Output Validation
+
+AI output is never trusted directly.
+
+RecoverAI validates:
+
+* Allowed actions
+* Allowed communication channels
+* Priority values
+* Confidence range
+* Recovery delay
+* Root-cause length
+* Reasoning length
+
+Invalid AI responses are rejected or replaced with deterministic fallback decisions.
 
 ---
 
-## 🤖 Diagnostic & Risk Engine
+# 🔐 AI Prompt-Injection Protection
 
-### Revenue Risk Engine
+Payment and customer information is treated as **untrusted data**.
 
-The risk engine extracts:
+The AI system prompt explicitly instructs the model that transaction/customer fields are data rather than instructions.
 
-- Transaction amount
-- Failure code
-- Failure source
-- Attempt count
-- Payment method
-- Subscription status
-- Customer LTV
-- Customer order count
-- Historical failed-payment count
-- Customer failure rate
+Input sanitization is also applied to reduce common prompt-injection patterns.
 
-It calculates:
+Most importantly:
 
-- `riskScore`: 0.05 – 0.98
-- `riskLevel`: `LOW` / `MEDIUM` / `HIGH` / `CRITICAL`
+> Even if the AI produces an unsafe recommendation, the Policy Safety Engine remains between the AI and the recovery executor.
 
-It also estimates recovery probabilities for the supported strategies.
+Therefore:
 
-### Diagnostic Agent
-
-`AIDiagnosticAgent_v3.2` classifies common failure patterns such as:
-
-- `CUSTOMER_3DS_ABANDONMENT`
-- `TRANSIENT_ISSUER_OUTAGE`
-- `INSUFFICIENT_FUNDS_RECURRING`
-- `SUBSCRIPTION_TOKEN_EXPIRED`
-- `ACQUIRER_TRANSIENT_FAILURE`
-- `GENERAL_DECLINE`
-- `HIGH_VALUE_REPEATED_DECLINE`
-- `RISK_SECURITY_BLOCK`
-
-The current implementation is deterministic JavaScript domain logic, **not** a live LLM call.
-
----
-
-## 💳 Razorpay Integration Status
-
-### Implemented
-
-- Razorpay-style `payment.failed` webhook ingestion
-- `subscription.charge.failed` event support
-- `payment.captured`, `order.paid`, and `invoice.paid` verification events
-- HMAC-SHA256 signature verification logic
-- Razorpay-style payment entity fields
-- Simulated payment-link creation
-- Simulated recovery-order creation
-- Simulated subscription retry scheduling
-- Simulated customer payment
-- Recovery reference IDs
-- Payment recovery metadata
-
-### Demo / Simulated
-
-The following are currently simulated locally:
-
-- Outbound Payment Links API call
-- Outbound Orders API call
-- Subscription retry API call
-- Actual customer payment
-- WhatsApp/SMS/email dispatch
-- CRM/Zendesk/Freshdesk ticket creation
-
-The generated `rzp.io` URLs are demo-style identifiers and are not created by a live Razorpay account.
-
----
-
-## 📥 Event Ingestion
-
-### Live-style webhook endpoint
-
-`POST /api/webhooks/razorpay`
-
-The receiver:
-
-1. Reads the webhook event.
-2. Checks the signature.
-3. Creates an idempotency key.
-4. Drops duplicates.
-5. Enqueues the event.
-6. Starts the recovery pipeline.
-
-### Demo webhook endpoint
-
-`POST /api/webhooks/simulate`
-
-The frontend's Simulate Webhook modal uses this endpoint.
-
-**Available presets:**
-
-- 3DS Bank OTP Abandonment
-- Subscription Bank Gateway Timeout
-- Insufficient Balance Decline
-- Enterprise High-Ticket Limit Breach
-
----
-
-## 🔁 Verification & Closed Loop
-
-After a recovery action is dispatched, the system tracks the recovery action.
-
-A simulated customer payment can be triggered through:
-
-`POST /api/webhooks/simulate-pay`
-
-The outcome analyzer:
-
-1. Locates the recovery case.
-2. Determines the paid amount.
-3. Classifies the result as `RECOVERED` or `PARTIAL`.
-4. Updates the recovery case.
-5. Marks the recovery action `VERIFIED_PAID`.
-6. Updates customer LTV/order statistics.
-7. Writes verification and recovery audit events.
-
----
-
-## 🔐 Audit Trail
-
-Every important system action is recorded in `audit_logs`.
-
-Each record contains:
-
-- Previous hash
-- Timestamp
-- Actor
-- Action
-- Details
-- Current hash
-
-The current hash is calculated using SHA-256 over the previous hash and event data:
-
-```
-Hash(n) = SHA256(Hash(n-1) + Timestamp + Actor + Action + Details)
+```text
+Untrusted Input
+      ↓
+AI
+      ↓
+Validation
+      ↓
+Policy Safety Engine
+      ↓
+Execution
 ```
 
-The audit service can verify the entire chain.
+rather than:
 
-**Endpoint:** `GET /api/audit/verify`
-
-The UI displays the chain as verified when integrity validation succeeds.
-
-> This is tamper-evident, not an externally immutable ledger. The audit records are stored in the application's local data store.
-
----
-
-## 👥 Role-Based Access Control
-
-The UI exposes four roles: **Super Admin**, **Risk Officer**, **Merchant Operator**, and **Support Agent**.
-
-### Permission Matrix
-
-| Permission | Super Admin | Risk Officer | Merchant Operator | Support Agent |
-|---|:---:|:---:|:---:|:---:|
-| View metrics | ✓ | ✓ | ✓ | ✓ |
-| View cases | ✓ | ✓ | ✓ | ✓ |
-| Trigger manual action | ✓ | ✓ | ✓ | — |
-| Update policy rules | ✓ | ✓ | — | — |
-| Manage models | ✓ | ✓ | — | — |
-| View audit logs | ✓ | ✓ | — | — |
-| Manage secrets | ✓ | — | — | — |
-
-### Demo Authentication Note
-
-For frictionless hackathon use, requests without a JWT receive a demo user, and the frontend supplies the selected role through `x-demo-role`.
-
-Therefore the current RBAC is suitable for demonstrating permission behavior, but this authentication approach **should not be considered production-grade authentication**.
-
----
-
-## 🗃️ Data Store
-
-The project uses a lightweight custom JSON-backed relational-style store:
-
-`data/recoverai_store.json`
-
-**Logical tables include:**
-
-- merchants
-- customers
-- payments
-- recovery_cases
-- recovery_actions
-- audit_logs
-- policy_rules
-- model_registry
-- processed_events
-
-> The repository contains a `better-sqlite3` dependency, but the current implementation does not use SQLite. `server/db/database.js` implements the persistence layer directly using JSON files.
-
----
-
-## 📊 Dashboard
-
-The React dashboard provides:
-
-- Revenue at risk
-- Revenue recovered
-- Recovery success rate
-- Active recovery cases
-- Guardrail status
-- Live audit stream
-- Recovery case explorer
-- Execution timelines
-- Safety policy studio
-- Model registry
-- Integration/secrets view
-- Webhook simulator
-- Batch ingestion
-- Audit integrity verification
-
-The dashboard receives periodic snapshots through Server-Sent Events:
-
-`GET /api/stream/dashboard`
-
----
-
-## 🧪 Demo Scenarios
-
-### Scenario 1 — 3DS Recovery
-
-**Select:** 3DS Bank OTP Abandonment, ₹2,499
-
-```
-payment.failed → CUSTOMER_3DS_ABANDONMENT → PAYMENT_LINK → APPROVED
-→ Payment Link dispatched → Simulate Customer Payment → VERIFIED_PAID → RECOVERED
-```
-
-### Scenario 2 — Subscription Recovery
-
-**Select:** Subscription Bank Gateway Timeout, ₹14,999, Recurring = true
-
-```
-subscription.charge.failed → TRANSIENT_ISSUER_OUTAGE → SUBSCRIPTION_RETRY
-→ APPROVED → Retry scheduled
-```
-
-### Scenario 3 — High-Value Escalation
-
-**Select:** Enterprise High-Ticket Limit Breach, ₹1,45,000
-
-```
-payment.failed → high-value risk → amount guardrail breached → ESCALATED → CRM ticket simulation
-```
-
-### Scenario 4 — Duplicate Event
-
-Submit the same webhook event more than once.
-
-```
-First event  → INGESTED
-Duplicate    → DUPLICATE_IGNORED
+```text
+Untrusted Input
+      ↓
+AI
+      ↓
+Direct Payment Execution ❌
 ```
 
 ---
 
-## 🧪 Automated Tests
+# 💳 Revenue Recovery Strategies
 
-Run:
+RecoverAI can recommend different recovery strategies depending on the detected situation.
 
-```bash
-npm test
-```
+Examples include:
 
-**Current test suite covers:**
+### Retry
 
-- Risk feature extraction and scoring
-- Recovery probability calculation
-- Diagnostic root-cause classification
-- Diagnostic recovery recommendation
-- Normal policy approval
-- High-value policy escalation
-- Subscription recovery routing
-- SHA-256 audit-chain integrity
+Used when a temporary payment failure may recover through another attempt.
 
-The uploaded project was tested during preparation of this README:
+### Customer Notification
 
-- ✓ Revenue Risk Engine
-- ✓ AI Diagnostic Agent
-- ✓ Policy Safety Engine approval
-- ✓ Policy Safety Engine escalation
-- ✓ Subscription routing
-- ✓ Audit hash-chain verification
+Used when customer action is required.
 
-**ALL RECOVERAI ENGINE TESTS PASSED**
+Possible channels include:
+
+* Email
+* WhatsApp
+* SMS
+
+### Support Escalation
+
+Used for high-value or complex cases requiring human intervention.
+
+### Stop Recovery
+
+Used when additional automated attempts are unlikely to be useful or may increase risk.
 
 ---
 
-## 🚀 Getting Started
+# ⚙️ Technology Stack
 
-### Prerequisites
+## Backend
 
-- Node.js 18+
-- npm 9+
+* Node.js
+* Express.js
+* SQLite / better-sqlite3
+* JWT
+* REST APIs
 
-> Node.js 22 was used when validating the backend test suite.
+## AI
 
-### 1. Install backend dependencies
+* Google Gemini
+* `@google/genai`
+* Structured AI output validation
+* Deterministic fallback reasoning
 
-From the project root:
+## Frontend
 
-```bash
-npm install
-```
+* React
+* Vite
+* JavaScript
+* CSS
 
-### 2. Install frontend dependencies
+## Security
 
-```bash
-cd client
-npm install
-cd ..
-```
+* JWT Authentication
+* RBAC
+* HMAC-SHA256 webhook verification
+* Rate limiting
+* Input sanitization
+* AI output validation
+* Environment-based secret management
 
-### 3. Start backend
+## Payment Integration
 
-```bash
-npm run server
-```
-
-- Backend: `http://localhost:5000`
-- Health check: `http://localhost:5000/api/health`
-
-### 4. Start frontend
-
-Open another terminal:
-
-```bash
-cd client
-npm run dev
-```
-
-Frontend: `http://localhost:5173`
-
-The Vite development server proxies `/api` requests to `http://localhost:5000`.
+* Razorpay APIs / webhook simulation
+* Designed for Razorpay test-mode integration
 
 ---
 
-## 📁 Project Structure
+# 📁 Project Structure
 
-```
-recoverai/
-├── package.json
-├── package-lock.json
-├── README.md
+```text
+RecoverAI/
+│
+├── client/
+│   └── src/
+│       ├── components/
+│       ├── views/
+│       └── App.jsx
 │
 ├── server/
-│   ├── index.js
-│   │
-│   ├── db/
-│   │   ├── database.js
-│   │   └── seed.js
-│   │
 │   ├── engines/
 │   │   ├── aiDiagnosticAgent.js
 │   │   ├── pipeline.js
 │   │   ├── policySafetyEngine.js
-│   │   ├── recoveryOrchestrator.js
-│   │   └── riskEngine.js
+│   │   └── recoveryOrchestrator.js
 │   │
 │   ├── ingestion/
-│   │   ├── apiIngestionService.js
-│   │   ├── deduplicator.js
-│   │   ├── eventQueue.js
 │   │   └── webhookReceiver.js
 │   │
-│   ├── integrations/
-│   │   ├── crmClient.js
-│   │   ├── notificationChannels.js
-│   │   └── razorpayClient.js
-│   │
-│   ├── ml/
-│   │   └── modelRegistry.js
-│   │
 │   ├── routes/
-│   │   ├── audit.js
-│   │   ├── cases.js
-│   │   ├── ingestion.js
+│   │   ├── webhooks.js
 │   │   ├── metrics.js
-│   │   ├── models.js
-│   │   ├── policies.js
-│   │   ├── secrets.js
-│   │   ├── stream.js
-│   │   └── webhooks.js
+│   │   └── stream.js
 │   │
 │   ├── security/
-│   │   ├── auditLogStore.js
 │   │   ├── auth.js
 │   │   ├── rbac.js
+│   │   ├── rateLimiter.js
 │   │   └── secretsManager.js
 │   │
 │   ├── verification/
 │   │   └── outcomeAnalyzer.js
 │   │
-│   └── test/
-│       └── engines.test.js
+│   ├── db/
+│   │   └── database.js
+│   │
+│   ├── test/
+│   │   ├── engines.test.js
+│   │   └── security.test.js
+│   │
+│   ├── bootstrap.js
+│   ├── start.js
+│   └── index.js
 │
-└── client/
-    ├── src/
-    │   ├── App.jsx
-    │   ├── components/
-    │   └── views/
-    ├── package.json
-    ├── vite.config.js
-    └── tailwind.config.js
+├── package.json
+├── package-lock.json
+├── .env.example
+└── README.md
 ```
 
 ---
 
-## 🔌 Main API Endpoints
+# 🔄 End-to-End Workflow
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/api/health` | Backend health |
-| POST | `/api/webhooks/razorpay` | Razorpay-style webhook ingestion |
-| POST | `/api/webhooks/simulate` | Demo failure event |
-| POST | `/api/webhooks/simulate-pay` | Simulate recovery payment |
-| GET | `/api/cases` | Recovery cases |
-| GET | `/api/cases/:id` | Case detail/timeline |
-| POST | `/api/cases/:id/action` | Manual recovery action |
-| GET | `/api/policies` | Policy rules |
-| PUT | `/api/policies/:id` | Update policy |
-| GET | `/api/audit` | Audit logs |
-| GET | `/api/audit/verify` | Verify audit chain |
-| GET | `/api/models` | Model registry |
-| GET | `/api/metrics` | Recovery metrics |
-| POST | `/api/ingestion/batch` | Batch transaction ingestion |
-| GET | `/api/stream/dashboard` | Dashboard SSE stream |
+### 1. Payment Event
+
+A payment failure is received through the webhook interface.
+
+### 2. Event Verification
+
+The webhook signature is verified and duplicate events are detected.
+
+### 3. Risk Detection
+
+RecoverAI evaluates the transaction and determines the revenue-recovery context.
+
+### 4. AI Diagnosis
+
+The AI Diagnostic Agent analyzes the available context and produces a structured recovery recommendation.
+
+### 5. Safety Validation
+
+The Policy Safety Engine checks whether the recommendation is allowed.
+
+The AI cannot bypass these policies.
+
+### 6. Recovery Execution
+
+The Recovery Orchestrator performs the approved action.
+
+### 7. Verification
+
+RecoverAI determines whether the recovery attempt succeeded.
+
+### 8. Analytics
+
+Recovery outcomes are recorded for:
+
+* Revenue recovered
+* Recovery attempts
+* Success rate
+* Failure rate
+* Recovery strategy performance
+* AI diagnostic performance
+
+---
+
+# 🧪 Testing
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run the existing engine tests:
+
+```bash
+npm test
+```
+
+Run security tests:
+
+```bash
+npm run test:security
+```
+
+The security test suite covers areas including:
+
+* JWT authentication
+* Expired tokens
+* Invalid tokens
+* Demo authentication restrictions
+* Production token-generation protection
+* RBAC-related access control
+* Webhook HMAC verification
+* Invalid webhook signatures
+* Webhook tampering
+* Duplicate event handling
+* Prompt-injection sanitization
+* Invalid AI output
+* Invalid recovery actions
+* Confidence validation
+* Delay validation
+* STOP_RECOVERY normalization
+* Deterministic fallback
+* Rate limiting
+* Production simulation restrictions
+* Policy safety overrides
+* Recovery orchestration
 
 ---
 
-## ⚠️ Current Prototype Limitations
+# 🔑 Environment Configuration
 
-The following should be understood before calling this system "production-ready":
+Create a local `.env` file based on `.env.example`.
 
-1. **Razorpay actions are simulated** — `server/integrations/razorpayClient.js` creates local simulated links/orders/retries rather than calling Razorpay REST APIs.
-2. **AI is heuristic-based** — `AIDiagnosticAgent` currently uses deterministic JavaScript rules. It does not make a live Gemini/OpenAI API request.
-3. **Queue is in-memory** — The event queue uses Node.js `EventEmitter` and an in-memory array. Redis Streams are not currently deployed.
-4. **Database is JSON-backed** — The current persistence layer is a custom JSON-backed relational-style store, not PostgreSQL/MySQL/SQLite.
-5. **Notifications are simulated** — Email, SMS, WhatsApp, and CRM integrations record/return simulated dispatch results.
-6. **Model metrics are seeded** — The model registry displays predefined model metadata and evaluation metrics. The repository does not contain model training or inference for the listed ML algorithms.
-7. **Demo authentication** — No-token requests receive a demo identity and the selected role header. Production deployment would require a real authentication provider and server-side identity/tenant enforcement.
-8. **Single-process architecture** — The current application is designed for a hackathon/demo environment rather than horizontally scaled production workloads.
+Example:
+
+```env
+NODE_ENV=development
+DEMO_MODE=true
+
+PORT=5000
+
+JWT_SECRET=your-local-jwt-secret
+
+AI_DIAGNOSTIC_ENABLED=true
+
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_TIMEOUT_MS=8000
+
+RAZORPAY_KEY_ID=your-razorpay-key-id
+RAZORPAY_KEY_SECRET=your-razorpay-key-secret
+RAZORPAY_WEBHOOK_SECRET=your-webhook-secret
+
+FRONTEND_ORIGIN=http://localhost:5173,http://localhost:3000
+```
+
+### ⚠️ Security
+
+Never commit your actual `.env` file or API keys to GitHub.
+
+Only `.env.example` should be committed.
 
 ---
 
-## 🛠️ Recommended Production Evolution
+# ▶️ Running the Project
 
-| Current (Demo) | Production Target |
-|---|---|
-| JSON Store | PostgreSQL |
-| In-memory Queue | Redis Streams / Kafka |
-| Heuristic Diagnostic | LLM + validated domain classifier |
-| Simulated Razorpay Client | Razorpay REST APIs |
-| Demo Authentication | OAuth/OIDC + JWT + tenant isolation |
-| Simulated Notifications | WhatsApp / SMS / Email providers |
-| Simulated CRM | Zendesk / Freshdesk / CRM API |
-| Single Process | Containerized horizontally scalable workers |
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start the backend:
+
+```bash
+npm start
+```
+
+The backend starts using:
+
+```text
+server/start.js
+```
+
+The frontend can be started from the `client` directory using the configured frontend development command.
 
 ---
-## License
 
-This project was created as a hackathon prototype.
+# 🧑‍💻 Demo Mode
+
+RecoverAI includes a controlled demo mode for hackathon demonstrations.
+
+Demo mode can provide:
+
+* Simulated payment failures
+* Simulated successful payments
+* Demo recovery workflows
+* Demonstration authentication
+
+Demo authentication is intentionally restricted to non-production environments.
+
+Production environments require proper authentication.
+
+---
+
+# 🏗️ Current Prototype Scope
+
+This project is a hackathon prototype.
+
+The current implementation demonstrates the complete revenue-recovery decision workflow, while some external actions remain simulated/test-mode operations.
+
+| Component                  | Current Status                      |
+| -------------------------- | ----------------------------------- |
+| Payment event ingestion    | ✅ Implemented                       |
+| Webhook verification       | ✅ Implemented                       |
+| Duplicate event protection | ✅ Implemented                       |
+| Revenue-risk processing    | ✅ Implemented                       |
+| Gemini AI diagnosis        | ✅ Implemented                       |
+| Deterministic AI fallback  | ✅ Implemented                       |
+| AI output validation       | ✅ Implemented                       |
+| Policy safety engine       | ✅ Implemented                       |
+| Recovery orchestration     | ✅ Implemented                       |
+| Outcome verification       | ✅ Implemented                       |
+| RBAC                       | ✅ Implemented                       |
+| JWT authentication         | ✅ Implemented                       |
+| API rate limiting          | ✅ Implemented                       |
+| Security test suite        | ✅ Implemented                       |
+| Razorpay integration       | 🧪 Test/simulation focused          |
+| External notifications     | 🧪 Demonstration/simulation focused |
+
+---
+
+# 📊 Why RecoverAI?
+
+RecoverAI is not simply a chatbot attached to a payment dashboard.
+
+It creates an **agentic revenue-recovery loop**:
+
+```text
+OBSERVE
+   ↓
+Diagnose the revenue risk
+   ↓
+REASON
+   ↓
+Select recovery strategy
+   ↓
+VALIDATE
+   ↓
+Apply deterministic safety policies
+   ↓
+ACT
+   ↓
+Execute recovery
+   ↓
+VERIFY
+   ↓
+Measure outcome
+   ↓
+LEARN
+```
+
+This allows AI to contribute where it is strongest — **reasoning and decision support** — while deterministic software controls sensitive payment operations.
+
+---
+
+# 🎯 Hackathon Track
+
+**Razorpay AI Buildathon 2026**
+
+### Track 03 — AI Revenue Recovery
+
+RecoverAI focuses on recovering revenue from failed or at-risk payments using an AI-driven diagnosis and recovery orchestration system.
+
+---
+
+# 🔮 Future Improvements
+
+Potential production extensions include:
+
+* Direct Razorpay test-mode payment recovery
+* Production-grade distributed job queues
+* Persistent event store
+* Redis-based distributed rate limiting
+* Real email/WhatsApp/SMS integrations
+* Advanced fraud/risk models
+* Merchant-specific recovery policies
+* Reinforcement/feedback-based strategy optimization
+* AI evaluation and monitoring
+* Human-in-the-loop approval for high-risk actions
+* Multi-tenant merchant isolation
+* Cloud deployment with autoscaling
+* Comprehensive observability and audit logging
+
+---
+
+# 👨‍💻 Author
+
+**Chakka Gowtham Teja**
+
+Computer Science & Engineering
+
+GitHub:
+https://github.com/GowthamTeja09
+
+---
+
+## 📜 License
+
+This project is developed as a hackathon prototype for demonstration and evaluation purposes.
